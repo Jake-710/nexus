@@ -48,6 +48,7 @@ class AlertListResponse(BaseModel):
     total_count: int
 
 class UserRiskHistoryPoint(BaseModel):
+    alert_id: Optional[UUID] = None
     timestamp: datetime
     risk_score: float
 

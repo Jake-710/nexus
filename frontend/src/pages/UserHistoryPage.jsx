@@ -8,6 +8,100 @@ import Pagination from '../components/Pagination';
 
 const ITEMS_PER_PAGE = 15;
 
+/* Inline expandable detail panel — fetches full alert data on first expand */
+const ExpandedAlertDetail = ({ alertId, get }) => {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!alertId) return;
+    get(`/alerts/${alertId}`)
+      .then(data => setDetail(data))
+      .catch(err => setError(err.message || 'Failed to load'))
+      .finally(() => setLoading(false));
+  }, [alertId]);
+
+  if (loading) return <div style={{ padding: '1rem 1.5rem' }} className="text-secondary text-sm">Loading details…</div>;
+  if (error) return <div style={{ padding: '1rem 1.5rem' }} className="text-sm" ><span style={{ color: 'var(--severity-critical)' }}>{error}</span></div>;
+  if (!detail) return null;
+
+  const mlSev = getSeverity(detail.ml_score);
+  const ruleSev = getSeverity(detail.rule_score);
+  const blendedSev = getSeverity(detail.risk_score);
+
+  return (
+    <div style={{ padding: '1rem 1.5rem', background: 'var(--bg-elevated)', borderTop: '1px solid var(--border)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        {/* Left: rules + scores */}
+        <div>
+          <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Triggered Rules</h4>
+          {detail.rule_details && Array.isArray(detail.rule_details) && detail.rule_details.length > 0 ? (
+            <ul className="flex flex-col gap-1" style={{ marginBottom: '1rem' }}>
+              {detail.rule_details.map((rule, i) => (
+                <li key={i} className="flex gap-2 items-center text-sm">
+                  <span style={{ color: 'var(--severity-critical)', fontSize: '0.6rem' }}>●</span> {rule}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-secondary text-sm mb-3">No rules triggered</p>
+          )}
+
+          <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Score Breakdown</h4>
+          <div className="flex gap-6">
+            <div>
+              <span className="text-muted text-xs">ML</span>
+              <div className="font-mono font-bold" style={{ color: mlSev.color }}>{(detail.ml_score * 100).toFixed(0)}%</div>
+            </div>
+            <div>
+              <span className="text-muted text-xs">Rule</span>
+              <div className="font-mono font-bold" style={{ color: ruleSev.color }}>{(detail.rule_score * 100).toFixed(0)}%</div>
+            </div>
+            <div>
+              <span className="text-muted text-xs">Blended</span>
+              <div className="font-mono font-bold" style={{ color: blendedSev.color }}>{(detail.risk_score * 100).toFixed(0)}%</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: event details */}
+        <div>
+          <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Event Details</h4>
+          <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+            <tbody>
+              {[
+                ['Action', detail.event_details?.action_type],
+                ['Source IP', <span className="font-mono">{detail.event_details?.src_ip}</span>],
+                ['Resource', detail.event_details?.resource_id || '—'],
+                ['Volume', detail.event_details?.volume_mb ? `${detail.event_details.volume_mb.toFixed(1)} MB` : '—'],
+                ['Location', detail.event_details?.geo_location || '—'],
+                ['Time', <span className="font-mono">{formatDateTime(detail.event_details?.timestamp)}</span>],
+              ].map(([label, val], i) => (
+                <tr key={i}>
+                  <td className="text-muted" style={{ padding: '0.25rem 0.5rem 0.25rem 0', width: '30%', verticalAlign: 'top' }}>{label}</td>
+                  <td style={{ padding: '0.25rem 0' }}>{val}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* Chevron icon */
+const Chevron = ({ open }) => (
+  <svg
+    width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    style={{ transition: 'transform 0.2s', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', color: 'var(--text-muted)', flexShrink: 0 }}
+  >
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
 const UserHistoryPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -15,6 +109,7 @@ const UserHistoryPage = () => {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [expandedRow, setExpandedRow] = useState(null); // alert_id or null
 
   useEffect(() => {
     document.title = 'User Risk History — UEBA';
@@ -71,7 +166,7 @@ const UserHistoryPage = () => {
           );
         })}
 
-        {/* Threshold at 40% (alert threshold) */}
+        {/* Threshold at 40% */}
         {(() => {
           const thY = pad.top + ch - 0.40 * ch;
           return (
@@ -111,6 +206,10 @@ const UserHistoryPage = () => {
     );
   }
 
+  const toggleRow = (alertId) => {
+    setExpandedRow(prev => prev === alertId ? null : alertId);
+  };
+
   return (
     <div className="animate-fade-in pb-8">
       <button className="btn btn-ghost mb-4" onClick={() => navigate(-1)}>← Back</button>
@@ -143,14 +242,15 @@ const UserHistoryPage = () => {
         </div>
       </div>
 
-      {/* History table */}
-      <div className="card">
-        <h3 className="font-semibold text-lg mb-4">Recent Alert History</h3>
+      {/* History table with expandable rows */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <h3 className="font-semibold text-lg" style={{ padding: '1.5rem 1.5rem 1rem' }}>Recent Alert History</h3>
         {history.length > 0 ? (
           <>
             <table className="table w-full">
               <thead>
                 <tr>
+                  <th style={{ width: '32px' }}></th>
                   <th>Time</th>
                   <th>Risk Score</th>
                   <th>Severity</th>
@@ -160,27 +260,47 @@ const UserHistoryPage = () => {
                 {paginatedData.map((point, i) => {
                   const sev = getSeverity(point.risk_score);
                   const pct = Math.round(point.risk_score * 100);
+                  const alertId = point.alert_id;
+                  const isOpen = expandedRow === alertId;
+
                   return (
-                    <tr key={i}>
-                      <td className="text-muted font-mono text-sm">{formatDateTime(point.timestamp)}</td>
-                      <td>
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono" style={{ color: sev.color, fontWeight: '600', width: '30px' }}>{pct}%</span>
-                          <div style={{ width: '80px', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: sev.color, borderRadius: '4px' }}></div>
+                    <React.Fragment key={alertId || i}>
+                      <tr
+                        style={{ cursor: alertId ? 'pointer' : 'default' }}
+                        onClick={() => alertId && toggleRow(alertId)}
+                      >
+                        <td style={{ padding: '0.75rem 0.5rem 0.75rem 1rem', width: '32px' }}>
+                          {alertId && <Chevron open={isOpen} />}
+                        </td>
+                        <td className="text-muted font-mono text-sm">{formatDateTime(point.timestamp)}</td>
+                        <td>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono" style={{ color: sev.color, fontWeight: '600', width: '30px' }}>{pct}%</span>
+                            <div style={{ width: '80px', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
+                              <div style={{ width: `${pct}%`, height: '100%', background: sev.color, borderRadius: '4px' }}></div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td><SeverityBadge score={point.risk_score} /></td>
-                    </tr>
+                        </td>
+                        <td><SeverityBadge score={point.risk_score} /></td>
+                      </tr>
+                      {isOpen && alertId && (
+                        <tr>
+                          <td colSpan={4} style={{ padding: 0, borderBottom: '1px solid var(--border)' }}>
+                            <ExpandedAlertDetail alertId={alertId} get={get} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
             </table>
-            <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+            <div style={{ padding: '0 1.5rem' }}>
+              <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+            </div>
           </>
         ) : (
-          <div className="empty-state">
+          <div className="empty-state" style={{ padding: '2rem' }}>
             <div className="empty-icon">📋</div>
             <div className="empty-text">No alerts recorded for this user yet.</div>
           </div>

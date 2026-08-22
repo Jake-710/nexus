@@ -124,7 +124,7 @@ async def get_user_risk_history(user_id: str, db: AsyncSession = Depends(get_db)
         
     alerts = (await db.execute(select(Alert).where(Alert.user_id == user_id).order_by(Alert.created_at))).scalars().all()
     
-    points = [UserRiskHistoryPoint(timestamp=a.created_at, risk_score=a.risk_score) for a in alerts]
+    points = [UserRiskHistoryPoint(alert_id=a.id, timestamp=a.created_at, risk_score=a.risk_score) for a in alerts]
     
     return UserRiskHistoryResponse(
         user_id=user.id,

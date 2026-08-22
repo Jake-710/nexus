@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
 import { getSeverity, getInitials, getAvatarStyle, formatDateTime } from '../theme';
@@ -14,6 +14,8 @@ const AlertsPage = () => {
   const [loading, setLoading] = useState(true);
   const [department, setDepartment] = useState('');
   const [severity, setSeverity] = useState('');
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('');
   const [page, setPage] = useState(1);
 
   const SEVERITY_TIERS = {
@@ -39,31 +41,68 @@ const AlertsPage = () => {
     return () => clearInterval(interval);
   }, [department]);
 
-  // Reset to page 1 on filter change
-  useEffect(() => { setPage(1); }, [severity, department]);
+  // Reset to page 1 on any filter/sort change
+  useEffect(() => { setPage(1); }, [severity, department, search, sortBy]);
 
-  const filteredAlerts = severity
-    ? alerts.filter(a => {
+  // Combined filter + search + sort pipeline
+  const processedAlerts = useMemo(() => {
+    let result = [...alerts];
+
+    // 1. Severity filter
+    if (severity) {
+      const tier = SEVERITY_TIERS[severity];
+      result = result.filter(a => {
         const pct = Math.round(a.risk_score * 100);
-        const tier = SEVERITY_TIERS[severity];
         return pct >= tier.floor && pct <= tier.ceiling;
-      })
-    : alerts;
+      });
+    }
 
-  const totalPages = Math.ceil(filteredAlerts.length / ITEMS_PER_PAGE);
-  const paginatedAlerts = filteredAlerts.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+    // 2. Search filter — user name OR rule text (AND with severity/department)
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      result = result.filter(a => {
+        const nameMatch = (a.user_name || '').toLowerCase().includes(q);
+        const ruleMatch = Array.isArray(a.rule_details) &&
+          a.rule_details.some(r => r.toLowerCase().includes(q));
+        return nameMatch || ruleMatch;
+      });
+    }
+
+    // 3. Sort by rule count
+    if (sortBy === 'rules-desc') {
+      result.sort((a, b) => (b.rule_details?.length || 0) - (a.rule_details?.length || 0));
+    } else if (sortBy === 'rules-asc') {
+      result.sort((a, b) => (a.rule_details?.length || 0) - (b.rule_details?.length || 0));
+    }
+
+    return result;
+  }, [alerts, severity, search, sortBy]);
+
+  const totalPages = Math.ceil(processedAlerts.length / ITEMS_PER_PAGE);
+  const paginatedAlerts = processedAlerts.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   return (
     <div className="animate-fade-in pb-8">
       <div className="flex justify-between items-end mb-6">
         <div>
           <h1 className="text-2xl font-bold mb-1">Security Alerts</h1>
-          <p className="text-secondary text-sm">Review and manage behavioral anomalies. ({filteredAlerts.length} alerts)</p>
+          <p className="text-secondary text-sm">Review and manage behavioral anomalies. ({processedAlerts.length} alerts)</p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="card mb-4 flex gap-4 items-center" style={{ padding: '0.75rem 1rem' }}>
+      <div className="card mb-4 flex gap-3 items-center flex-wrap" style={{ padding: '0.75rem 1rem' }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: '260px' }}>
+          <input
+            type="text"
+            className="input"
+            placeholder="Search user or rule…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: '100%', paddingLeft: '2.25rem' }}
+          />
+          <span style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>⌕</span>
+        </div>
         <select className="select" style={{ maxWidth: '200px' }} value={severity} onChange={e => setSeverity(e.target.value)}>
           <option value="">All Severities</option>
           <option value="critical">Critical (80%–100%)</option>
@@ -79,16 +118,23 @@ const AlertsPage = () => {
           <option value="IT-Admin">IT-Admin</option>
           <option value="Sales">Sales</option>
         </select>
+        <select className="select" style={{ maxWidth: '200px' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
+          <option value="">Default Order</option>
+          <option value="rules-desc">Most Rules Triggered</option>
+          <option value="rules-asc">Fewest Rules Triggered</option>
+        </select>
       </div>
 
       {loading ? (
         <div className="card"><p className="text-secondary">Loading alerts...</p></div>
-      ) : filteredAlerts.length === 0 ? (
+      ) : processedAlerts.length === 0 ? (
         <div className="card">
           <div className="empty-state">
             <div className="empty-icon">🔔</div>
             <div className="empty-text">
-              {severity ? `No ${SEVERITY_TIERS[severity].label} alerts found.` : 'No alerts found. The system is monitoring — alerts will appear here when anomalies are detected.'}
+              {severity || search
+                ? 'No alerts match your current filters.'
+                : 'No alerts found. The system is monitoring — alerts will appear here when anomalies are detected.'}
             </div>
           </div>
         </div>
