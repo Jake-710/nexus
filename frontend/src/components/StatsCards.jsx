@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApi } from '../hooks/useApi';
+import { SEVERITY } from '../theme';
 
 const StatsCards = () => {
   const { get } = useApi();
@@ -26,45 +27,39 @@ const StatsCards = () => {
     return () => clearInterval(interval);
   }, []);
 
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-      <div className="card stat-card" style={{ borderBottom: '3px solid var(--accent-red)' }}>
-        <div className="flex items-center gap-2 text-muted">
-          <span>🚨</span> <span className="label">Active Alerts</span>
-        </div>
-        <div className="value text-red">{stats.activeAlerts}</div>
-      </div>
-      
-      <div className="card stat-card" style={{ borderBottom: '3px solid var(--accent-amber)' }}>
-        <div className="flex items-center gap-2 text-muted">
-          <span>⚠️</span> <span className="label">Avg Risk Score</span>
-        </div>
-        <div className="value text-amber">{stats.avgRiskScore}</div>
-      </div>
-      
-      <div className="card stat-card" style={{ borderBottom: '3px solid var(--accent-cyan)' }}>
-        <div className="flex items-center gap-2 text-muted">
-          <span>📈</span> <span className="label">Events Today</span>
-        </div>
-        <div className="value text-cyan">{stats.eventsToday.toLocaleString()}</div>
-      </div>
-      
-      <div className="card stat-card" style={{ borderBottom: '3px solid var(--accent-purple)' }}>
-        <div className="flex items-center gap-2 text-muted">
-          <span>👥</span> <span className="label">High Risk Users</span>
-        </div>
-        <div className="value">{stats.highRiskUsers}</div>
-      </div>
+  const cards = [
+    { label: 'Active Alerts',  value: stats.activeAlerts,  accent: SEVERITY.critical.color, icon: '⚠' },
+    { label: 'Avg Risk Score', value: stats.avgRiskScore,   accent: SEVERITY.high.color,     icon: '◈' },
+    { label: 'Events Today',   value: stats.eventsToday?.toLocaleString?.() ?? stats.eventsToday, accent: SEVERITY.low.color, icon: '▤' },
+    { label: 'High Risk Users',value: stats.highRiskUsers,  accent: SEVERITY.critical.color, icon: '▲' },
+    { label: 'System Status',  value: null,                 accent: '#22C55E',               icon: '●' },
+  ];
 
-      <div className="card stat-card" style={{ borderBottom: '3px solid var(--accent-green)' }}>
-        <div className="flex items-center gap-2 text-muted">
-          <span>⚙️</span> <span className="label">System Status</span>
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+      {cards.map((c, i) => (
+        <div
+          key={i}
+          className="card stat-card"
+          style={{ borderLeft: `3px solid ${c.accent}`, padding: '1.25rem' }}
+        >
+          <div className="flex items-center gap-2">
+            <span style={{ color: c.accent, fontSize: '0.9rem' }}>{c.icon}</span>
+            <span className="label">{c.label}</span>
+          </div>
+          {c.label === 'System Status' ? (
+            <div className="value" style={{ color: c.accent, fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{
+                display: 'inline-block', width: '8px', height: '8px',
+                background: c.accent, borderRadius: '50%',
+              }}></span>
+              Online
+            </div>
+          ) : (
+            <div className="value font-mono" style={{ color: c.accent }}>{c.value}</div>
+          )}
         </div>
-        <div className="value text-green" style={{ fontSize: '1.5rem', marginTop: '0.5rem' }}>
-          <span style={{ display: 'inline-block', width: '12px', height: '12px', background: 'var(--accent-green)', borderRadius: '50%', marginRight: '8px', boxShadow: '0 0 10px var(--accent-green)' }}></span>
-          Online
-        </div>
-      </div>
+      ))}
     </div>
   );
 };

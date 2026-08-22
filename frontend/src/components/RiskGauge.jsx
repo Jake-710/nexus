@@ -1,71 +1,60 @@
 import React, { useEffect, useState } from 'react';
+import { getSeverity } from '../theme';
 
-const RiskGauge = ({ value = 0.45 }) => {
+const RiskGauge = ({ value = 0 }) => {
   const [animatedValue, setAnimatedValue] = useState(0);
-  
+
   useEffect(() => {
-    setTimeout(() => setAnimatedValue(value), 300);
+    const timer = setTimeout(() => setAnimatedValue(value), 100);
+    return () => clearTimeout(timer);
   }, [value]);
 
-  const radius = 80;
-  const circumference = radius * Math.PI; // Semicircle
-  const strokeDashoffset = circumference - (animatedValue * circumference);
-  
-  let color = 'var(--accent-green)';
-  let glow = 'rgba(46, 213, 115, 0.5)';
-  if (value > 0.7) {
-    color = 'var(--accent-red)';
-    glow = 'rgba(255, 71, 87, 0.5)';
-  } else if (value > 0.4) {
-    color = 'var(--accent-amber)';
-    glow = 'rgba(255, 165, 2, 0.5)';
-  }
+  const severity = getSeverity(animatedValue);
+  const color = severity.color;
 
-  const isCritical = value > 0.8;
+  // Semicircular arc math
+  const radius = 72;
+  const circumference = radius * Math.PI;
+  const offset = circumference - (animatedValue * circumference);
+  const pct = Math.round(animatedValue * 100);
 
   return (
-    <div className="card flex-col items-center justify-center h-full">
-      <h3 className="text-muted mb-4 font-semibold uppercase tracking-wider text-sm">System Risk Level</h3>
-      
-      <div className={`risk-gauge-container ${isCritical ? 'animate-pulse' : ''}`} style={{ height: '120px' }}>
-        <svg width="200" height="120" viewBox="0 0 200 120">
-          {/* Background Arc */}
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      <h3 className="text-muted text-xs font-semibold uppercase tracking-wider mb-3">Current Risk Level</h3>
+
+      <div className="risk-gauge-container">
+        <svg width="180" height="100" viewBox="0 0 180 100">
+          {/* Background arc */}
           <path
-            d="M 20 100 A 80 80 0 0 1 180 100"
+            d="M 18 90 A 72 72 0 0 1 162 90"
             fill="none"
-            stroke="var(--bg-secondary)"
-            strokeWidth="16"
+            stroke="var(--border)"
+            strokeWidth="14"
             strokeLinecap="round"
           />
-          {/* Foreground Arc */}
+          {/* Value arc */}
           <path
-            d="M 20 100 A 80 80 0 0 1 180 100"
+            d="M 18 90 A 72 72 0 0 1 162 90"
             fill="none"
             stroke={color}
-            strokeWidth="16"
+            strokeWidth="14"
             strokeLinecap="round"
             strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            style={{ 
-              transition: 'stroke-dashoffset 1s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.5s',
-              filter: `drop-shadow(0 0 8px ${glow})`
-            }}
+            strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 0.8s ease, stroke 0.3s' }}
           />
         </svg>
-        
+        {/* Center score */}
         <div style={{
-          position: 'absolute',
-          bottom: '10px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          textAlign: 'center'
+          position: 'absolute', bottom: '4px', left: '50%', transform: 'translateX(-50%)',
+          textAlign: 'center',
         }}>
-          <div style={{ fontSize: '2.5rem', fontWeight: '700', color, textShadow: `0 0 15px ${glow}` }}>
-            {Math.round(animatedValue * 100)}
+          <div className="font-mono" style={{ fontSize: '2rem', fontWeight: '700', color, lineHeight: 1 }}>
+            {pct}
           </div>
         </div>
       </div>
-      <div className="text-muted text-sm mt-2">Score out of 100</div>
+      <div className="text-muted text-xs mt-1">Score out of 100</div>
     </div>
   );
 };

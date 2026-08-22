@@ -24,24 +24,27 @@ const DashboardPage = () => {
 
   return (
     <div className="animate-fade-in pb-8">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold mb-2">SOC Dashboard</h1>
-          <p className="text-secondary">Overview of user and entity behavior analytics.</p>
+          <h1 className="text-2xl font-bold mb-1">SOC Dashboard</h1>
+          <p className="text-secondary text-sm">Overview of user and entity behavior analytics.</p>
         </div>
-        <div className="text-sm text-muted bg-black/20 px-4 py-2 rounded-full border border-white/5">
-          Last updated: {new Date().toLocaleTimeString()}
+        <div className="text-xs text-muted font-mono" style={{
+          padding: '0.4rem 0.75rem', borderRadius: '6px',
+          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+        }}>
+          Updated: {new Date().toLocaleTimeString()}
         </div>
       </div>
 
       <StatsCards />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem', marginBottom: '1rem' }}>
         <RiskGauge value={avgRisk} />
         <RiskTrendChart />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
         <RiskLeaderboard />
         <LiveActivityFeed />
       </div>

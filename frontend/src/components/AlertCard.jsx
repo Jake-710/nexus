@@ -1,57 +1,52 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getSeverity, getInitials, getAvatarStyle, formatDateTime } from '../theme';
+import SeverityBadge from './SeverityBadge';
 
 const AlertCard = ({ alert }) => {
   const navigate = useNavigate();
-  
-  const getSeverityStyle = (score) => {
-    const pct = Math.round(score * 100);
-    if (pct >= 80) return { color: 'var(--accent-red)', badge: 'badge-critical' };
-    if (pct >= 60) return { color: 'var(--accent-amber)', badge: 'badge-warning' };
-    if (pct >= 40) return { color: '#f0c040', badge: 'badge-warning' };
-    return { color: 'var(--accent-green)', badge: 'badge-low' };
-  };
-
-  const severity = getSeverityStyle(alert.risk_score);
+  const sev = getSeverity(alert.risk_score);
+  const initials = getInitials(alert.user_name);
 
   return (
-    <div 
-      className="card animate-slide-in"
+    <div
+      className="card"
       style={{
-        borderLeft: `4px solid ${severity.color}`,
+        borderLeft: `3px solid ${sev.color}`,
         cursor: 'pointer',
         padding: '1.25rem',
-        position: 'relative',
-        overflow: 'hidden'
+        display: 'flex',
+        flexDirection: 'column',
       }}
       onClick={() => navigate(`/alerts/${alert.id}`)}
     >
       <div className="flex justify-between items-start mb-3">
         <div className="flex items-center gap-3">
           <div style={{
-            width: '40px', height: '40px', borderRadius: '50%',
-            background: 'rgba(255,255,255,0.05)', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', fontSize: '1rem',
-            fontWeight: 'bold', color: severity.color,
-            boxShadow: `inset 0 0 10px ${severity.color}33`
+            ...getAvatarStyle(alert.risk_score),
+            width: '38px', height: '38px', borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '0.85rem', fontWeight: '700',
           }}>
-            {alert.user_name.split(' ').map(n => n[0]).join('')}
+            {initials}
           </div>
           <div>
-            <h4 className="font-semibold text-lg">{alert.user_name}</h4>
-            <div className="text-muted text-sm">{alert.department}</div>
+            <h4 className="font-semibold">{alert.user_name}</h4>
+            <div className="text-muted text-xs">{alert.department || alert.user_department}</div>
           </div>
         </div>
-        
+
         <div className="flex flex-col items-end gap-2">
-          <span className="text-muted text-xs">{alert.timestamp}</span>
-          <span className={`badge ${severity.badge}`}>Score: {Math.round(alert.risk_score * 100)}</span>
+          <span className="text-muted text-xs font-mono">{formatDateTime(alert.created_at || alert.timestamp)}</span>
+          <SeverityBadge score={alert.risk_score} showScore />
         </div>
       </div>
 
-      <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border-color)' }}>
-        <div className="font-medium mb-1">{alert.action_type}</div>
-        <p className="text-secondary text-sm line-clamp-2">{alert.description}</p>
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem', marginTop: 'auto' }}>
+        <div className="font-medium text-sm mb-1">{alert.event_details?.action_type?.replace('_', ' ') || 'Anomaly'}</div>
+        <div className="text-secondary text-xs line-clamp-2">
+          {alert.rule_details && Array.isArray(alert.rule_details) ? alert.rule_details.join(' • ') : 'Behavioral anomaly detected'}
+        </div>
       </div>
     </div>
   );

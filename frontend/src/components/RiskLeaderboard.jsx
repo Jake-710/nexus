@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
+import { getSeverity, getInitials, getAvatarStyle } from '../theme';
+import SeverityBadge from './SeverityBadge';
 
 const RiskLeaderboard = () => {
   const { get } = useApi();
@@ -28,77 +30,71 @@ const RiskLeaderboard = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const getScoreColor = (score) => {
-    if (score >= 0.8) return 'var(--accent-red)';
-    if (score >= 0.5) return 'var(--accent-amber)';
-    return 'var(--accent-green)';
-  };
-
   return (
-    <div className="card h-full" id="leaderboard">
-      <div className="flex justify-between items-center mb-6">
+    <div className="card h-full">
+      <div className="flex justify-between items-center mb-4">
         <h3 className="font-semibold text-lg">Top Riskiest Users</h3>
-        <button className="btn btn-ghost text-sm">View All</button>
+        <button className="btn btn-ghost text-sm" onClick={() => navigate('/users')}>View All</button>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
-        <table className="table w-full">
-          <thead>
-            <tr>
-              <th>User</th>
-              <th>Dept</th>
-              <th>Risk Score</th>
-              <th>Alerts</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr 
-                key={user.id} 
-                style={{ cursor: 'pointer' }}
-                onClick={() => navigate(`/users/${user.id}`)}
-              >
-                <td>
-                  <div className="flex items-center gap-3">
-                    <div style={{
-                      width: '32px', height: '32px', borderRadius: '50%',
-                      background: 'rgba(255,255,255,0.1)', display: 'flex',
-                      alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem',
-                      fontWeight: 'bold', color: getScoreColor(user.score)
-                    }}>
-                      {user.name.split(' ').map(n => n[0]).join('')}
-                    </div>
-                    <span className="font-medium">{user.name}</span>
-                  </div>
-                </td>
-                <td className="text-muted">{user.dept}</td>
-                <td>
-                  <div className="flex items-center gap-3">
-                    <span style={{ color: getScoreColor(user.score), fontWeight: '600', width: '30px' }}>
-                      {Math.round(user.score * 100)}
-                    </span>
-                    <div style={{ width: '100px', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ 
-                        width: `${user.score * 100}%`, 
-                        height: '100%', 
-                        background: getScoreColor(user.score),
-                        boxShadow: `0 0 8px ${getScoreColor(user.score)}`
-                      }}></div>
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <span className={`badge ${user.alerts > 5 ? 'badge-critical' : 'badge-warning'}`}>
-                    {user.alerts}
-                  </span>
-                </td>
+      {users.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon">👥</div>
+          <div className="empty-text">Collecting user risk data… The leaderboard will populate as alerts are generated.</div>
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="table w-full">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Dept</th>
+                <th>Risk Score</th>
+                <th>Alerts</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {users.length === 0 && (
-        <p className="text-secondary text-sm" style={{ padding: '1rem' }}>Collecting user risk data... Alerts will populate this leaderboard.</p>
+            </thead>
+            <tbody>
+              {users.map((user) => {
+                const sev = getSeverity(user.score);
+                const pct = Math.round(user.score * 100);
+                return (
+                  <tr key={user.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/users/${user.id}`)}>
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <div style={{
+                          ...getAvatarStyle(user.score),
+                          width: '32px', height: '32px', borderRadius: '50%',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '0.75rem', fontWeight: '700',
+                        }}>
+                          {getInitials(user.name)}
+                        </div>
+                        <span className="font-medium">{user.name}</span>
+                      </div>
+                    </td>
+                    <td className="text-secondary">{user.dept}</td>
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono" style={{ color: sev.color, fontWeight: '600', width: '30px' }}>
+                          {pct}
+                        </span>
+                        <div style={{ width: '80px', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
+                          <div style={{
+                            width: `${pct}%`, height: '100%',
+                            background: sev.color, borderRadius: '4px',
+                          }}></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <SeverityBadge score={user.alerts > 5 ? 0.9 : user.alerts > 2 ? 0.65 : 0.3} label={String(user.alerts)} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
