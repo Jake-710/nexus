@@ -5,20 +5,60 @@ import { getSeverity, getInitials, getAvatarStyle, formatDateTime } from '../the
 import SeverityBadge from '../components/SeverityBadge';
 import RiskGauge from '../components/RiskGauge';
 
+const STATUS_OPTIONS = [
+  { value: 'new', label: 'New' },
+  { value: 'investigating', label: 'Investigating' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'false_positive', label: 'False Positive' },
+];
+
 const AlertDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { get } = useApi();
+  const { get, patch, post } = useApi();
   const [alert, setAlert] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState('new');
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [feedbackMsg, setFeedbackMsg] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
 
   useEffect(() => {
     document.title = `Alert Detail — UEBA`;
     get(`/alerts/${id}`)
-      .then(data => setAlert(data))
+      .then(data => { setAlert(data); setStatus(data.status || 'new'); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
+
+  const handleStatusChange = (newStatus) => {
+    setStatus(newStatus);
+    setSavingStatus(true);
+    patch(`/alerts/${id}/status`, { status: newStatus })
+      .then(data => setAlert(data))
+      .catch(err => console.error('Failed to update status:', err))
+      .finally(() => setSavingStatus(false));
+  };
+
+  const submitFeedback = (verdict) => {
+    setSubmittingFeedback(true);
+    setFeedbackMsg('');
+    post(`/alerts/${id}/feedback`, { verdict, notes: notes.trim() || null })
+      .then(res => {
+        setFeedbackMsg(verdict === 'confirmed_threat' ? 'Recorded as confirmed threat.' : 'Recorded as false positive.');
+        setStatus(res.alert_status || status);
+        setNotes('');
+      })
+      .catch(err => setFeedbackMsg('Failed to submit feedback: ' + (err.message || 'error')))
+      .finally(() => setSubmittingFeedback(false));
+  };
+
+  // Parse cached MITRE tags (stored as a JSON string on the alert)
+  let mitreTags = [];
+  if (alert && alert.mitre_tags) {
+    try { mitreTags = JSON.parse(alert.mitre_tags) || []; } catch (e) { mitreTags = []; }
+  }
 
   if (loading) return <div className="animate-fade-in p-8"><div className="card"><p className="text-secondary">Loading alert details...</p></div></div>;
   if (!alert) return <div className="animate-fade-in p-8"><div className="card"><p style={{ color: 'var(--severity-critical)' }}>Alert not found.</p></div></div>;
@@ -47,7 +87,21 @@ const AlertDetailPage = () => {
                 <span className="font-mono">{formatDateTime(alert.created_at)}</span>
               </div>
             </div>
-            <SeverityBadge score={alert.risk_score} />
+            <div className="flex flex-col items-end gap-2">
+              <SeverityBadge score={alert.risk_score} />
+              <select
+                className="select"
+                value={status}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                disabled={savingStatus}
+                style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem' }}
+              >
+                {STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              {savingStatus && <span className="text-muted text-xs">Saving…</span>}
+            </div>
           </div>
 
           {/* Triggered rules */}
@@ -60,6 +114,30 @@ const AlertDetailPage = () => {
                 </li>
               )) : <li className="text-secondary text-sm">No rules triggered</li>}
             </ul>
+
+            {/* MITRE ATT&CK mapping */}
+            {mitreTags.length > 0 && (
+              <div style={{ marginTop: '0.85rem', paddingTop: '0.85rem', borderTop: '1px solid var(--border)' }}>
+                <div className="text-muted uppercase text-xs tracking-wider mb-2" style={{ fontWeight: 600 }}>
+                  MITRE ATT&CK
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {mitreTags.map((t) => (
+                    <span
+                      key={t.id}
+                      title={`${t.tactic} — ${t.name}`}
+                      className="badge"
+                      style={{
+                        background: 'var(--accent)18', color: 'var(--accent)',
+                        border: '1px solid var(--accent)', fontSize: '0.72rem', fontWeight: 600,
+                      }}
+                    >
+                      {t.id} · {t.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Score breakdown with color coding */}
@@ -117,15 +195,84 @@ const AlertDetailPage = () => {
         </div>
       </div>
 
-      {/* AI Narrative section */}
-      <div className="card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-        <div className="flex items-center gap-3 mb-3">
-          <span style={{ fontSize: '1.25rem' }}>✦</span>
-          <h3 className="font-semibold text-lg" style={{ color: 'var(--accent)' }}>AI Security Narrative</h3>
-        </div>
-        <p className="text-secondary leading-relaxed text-sm">
-          {alert.genai_narrative || 'AI analysis will be available in the next release. The system is currently gathering baseline behavioral metrics to generate accurate natural language summaries.'}
+      {/* AI Analysis — Problem & Solution */}
+      {(() => {
+        let analysis = null;
+        if (alert.genai_narrative) {
+          try { analysis = JSON.parse(alert.genai_narrative); } catch { /* legacy plain text */ }
+        }
+        return (
+          <div className="card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-3 mb-4">
+              <span style={{ fontSize: '1.25rem' }}>✦</span>
+              <h3 className="font-semibold text-lg" style={{ color: 'var(--accent)' }}>AI Security Analysis</h3>
+            </div>
+
+            {analysis && analysis.problem ? (
+              <div className="flex flex-col gap-4">
+                {/* Problem */}
+                <div className="p-4 rounded-lg" style={{ background: 'rgba(255, 71, 71, 0.06)', border: '1px solid rgba(255, 71, 71, 0.15)' }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span style={{ color: 'var(--severity-critical)', fontSize: '0.85rem', fontWeight: '700' }}>⚠</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--severity-critical)' }}>Problem</span>
+                  </div>
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+                    {analysis.problem}
+                  </p>
+                </div>
+
+                {/* Solution */}
+                <div className="p-4 rounded-lg" style={{ background: 'rgba(36, 138, 253, 0.06)', border: '1px solid rgba(36, 138, 253, 0.15)' }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span style={{ color: 'var(--severity-low)', fontSize: '0.85rem', fontWeight: '700' }}>✓</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--severity-low)' }}>Recommended Action</span>
+                  </div>
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+                    {analysis.solution}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-secondary leading-relaxed text-sm">
+                {alert.genai_narrative || 'AI analysis is being generated. Refresh in a moment.'}
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Analyst Decision Center */}
+      <div className="card" style={{ marginTop: '1rem' }}>
+        <h3 className="font-semibold text-lg mb-3">Analyst Decision</h3>
+        <p className="text-secondary text-sm mb-3">
+          Record your verdict on this alert. Confirmed threats and false positives feed the model retraining pipeline.
         </p>
+        <textarea
+          className="input"
+          placeholder="Optional investigation notes…"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={3}
+          style={{ width: '100%', resize: 'vertical', marginBottom: '0.85rem', fontFamily: 'inherit' }}
+        />
+        <div className="flex gap-3 items-center flex-wrap">
+          <button
+            className="btn btn-primary"
+            onClick={() => submitFeedback('confirmed_threat')}
+            disabled={submittingFeedback}
+            style={{ background: 'var(--severity-critical)', borderColor: 'var(--severity-critical)' }}
+          >
+            Confirm Threat
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => submitFeedback('false_positive')}
+            disabled={submittingFeedback}
+          >
+            Mark False Positive
+          </button>
+          {feedbackMsg && <span className="text-sm" style={{ color: 'var(--accent)' }}>{feedbackMsg}</span>}
+        </div>
       </div>
     </div>
   );

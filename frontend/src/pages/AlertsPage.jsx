@@ -1,14 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
+import { useAuth } from '../App';
 import { getSeverity, getInitials, getAvatarStyle, formatDateTime } from '../theme';
 import SeverityBadge from '../components/SeverityBadge';
 import Pagination from '../components/Pagination';
 
 const ITEMS_PER_PAGE = 12;
 
+const STATUS_LABELS = {
+  new: 'New',
+  investigating: 'Investigating',
+  resolved: 'Resolved',
+  false_positive: 'False Positive',
+};
+
 const AlertsPage = () => {
   const { get } = useApi();
+  const { token } = useAuth();
   const navigate = useNavigate();
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16,6 +25,7 @@ const AlertsPage = () => {
   const [severity, setSeverity] = useState('');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
 
   const SEVERITY_TIERS = {
@@ -28,6 +38,7 @@ const AlertsPage = () => {
   const fetchAlerts = () => {
     let endpoint = '/alerts/?limit=50';
     if (department) endpoint += `&department=${department}`;
+    if (statusFilter) endpoint += `&status=${statusFilter}`;
     get(endpoint)
       .then(data => setAlerts(data.alerts || []))
       .catch(err => console.error('Failed to fetch alerts:', err))
@@ -39,10 +50,34 @@ const AlertsPage = () => {
     fetchAlerts();
     const interval = setInterval(fetchAlerts, 15000);
     return () => clearInterval(interval);
-  }, [department]);
+  }, [department, statusFilter]);
 
   // Reset to page 1 on any filter/sort change
-  useEffect(() => { setPage(1); }, [severity, department, search, sortBy]);
+  useEffect(() => { setPage(1); }, [severity, department, search, sortBy, statusFilter]);
+
+  // Export current filter set as CSV (auth-aware blob download)
+  const exportCsv = async () => {
+    const params = new URLSearchParams({ format: 'csv' });
+    if (department) params.append('department', department);
+    if (statusFilter) params.append('status', statusFilter);
+    try {
+      const res = await fetch(`/api/v1/export/alerts?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `alerts_export.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('CSV export failed:', err);
+    }
+  };
 
   // Combined filter + search + sort pipeline
   const processedAlerts = useMemo(() => {
@@ -118,11 +153,24 @@ const AlertsPage = () => {
           <option value="IT-Admin">IT-Admin</option>
           <option value="Sales">Sales</option>
         </select>
+        <select className="select" style={{ maxWidth: '180px' }} value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setLoading(true); }}>
+          <option value="">All Statuses</option>
+          <option value="new">New</option>
+          <option value="investigating">Investigating</option>
+          <option value="resolved">Resolved</option>
+          <option value="false_positive">False Positive</option>
+        </select>
         <select className="select" style={{ maxWidth: '200px' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
           <option value="">Default Order</option>
           <option value="rules-desc">Most Rules Triggered</option>
           <option value="rules-asc">Fewest Rules Triggered</option>
         </select>
+        <button className="btn btn-ghost" onClick={exportCsv} style={{ gap: '0.4rem', marginLeft: 'auto' }} title="Export current alerts to CSV">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Export
+        </button>
       </div>
 
       {loading ? (
@@ -173,6 +221,18 @@ const AlertsPage = () => {
                     <div className="flex flex-col items-end gap-2">
                       <span className="text-muted text-xs font-mono">{formatDateTime(alert.created_at)}</span>
                       <SeverityBadge score={alert.risk_score} showScore />
+                      {alert.status && alert.status !== 'new' && (
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: '0.65rem', fontWeight: 600,
+                            background: 'var(--bg-elevated)', color: 'var(--text-muted)',
+                            border: '1px solid var(--border)',
+                          }}
+                        >
+                          {STATUS_LABELS[alert.status] || alert.status}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem', marginTop: 'auto' }}>

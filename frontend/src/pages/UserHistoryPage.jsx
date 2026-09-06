@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
+import { useAuth } from '../App';
 import { getSeverity, getInitials, getAvatarStyle, formatDateTime, formatTime } from '../theme';
 import SeverityBadge from '../components/SeverityBadge';
 import RiskGauge from '../components/RiskGauge';
@@ -106,6 +107,7 @@ const UserHistoryPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { get } = useApi();
+  const { token } = useAuth();
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -210,6 +212,26 @@ const UserHistoryPage = () => {
     setExpandedRow(prev => prev === alertId ? null : alertId);
   };
 
+  const exportCsv = async () => {
+    try {
+      const res = await fetch(`/api/v1/export/user/${id}/history?format=csv`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(userData.user_name || 'user').replace(/\s+/g, '_')}_history.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('CSV export failed:', err);
+    }
+  };
+
   return (
     <div className="animate-fade-in pb-8">
       <button className="btn btn-ghost mb-4" onClick={() => navigate(-1)}>← Back</button>
@@ -244,7 +266,17 @@ const UserHistoryPage = () => {
 
       {/* History table with expandable rows */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <h3 className="font-semibold text-lg" style={{ padding: '1.5rem 1.5rem 1rem' }}>Recent Alert History</h3>
+        <div className="flex justify-between items-center" style={{ padding: '1.5rem 1.5rem 1rem' }}>
+          <h3 className="font-semibold text-lg">Recent Alert History</h3>
+          {history.length > 0 && (
+            <button className="btn btn-ghost" onClick={exportCsv} style={{ gap: '0.4rem' }} title="Export this user's risk history to CSV">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Export CSV
+            </button>
+          )}
+        </div>
         {history.length > 0 ? (
           <>
             <table className="table w-full">

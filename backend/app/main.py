@@ -16,7 +16,10 @@ from app.models import User, UserBaseline
 from app.api.events import router as events_router
 from app.api.alerts import router as alerts_router
 from app.api.users import router as users_router
-from app.schemas import LoginRequest, Token
+from app.api.admin import router as admin_router
+from app.api.export import router as export_router
+from app.api.auth import get_current_user
+from app.schemas import LoginRequest, Token, CurrentUser
 from app.workers.scoring_worker import run_scoring_worker
 from app.services.peer_groups import get_peer_group_id
 
@@ -90,6 +93,8 @@ app.add_middleware(
 app.include_router(events_router)
 app.include_router(alerts_router)
 app.include_router(users_router)
+app.include_router(admin_router)
+app.include_router(export_router)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -138,6 +143,22 @@ async def startup_event():
     logger.info("Starting UEBA backend...")
     await init_db()
     logger.info("Database tables created.")
+
+    # Restore any admin-saved thresholds so config survives restarts
+    from app.models import SystemConfig
+    async with async_session_maker() as cfg_db:
+        cfg_row = (await cfg_db.execute(
+            select(SystemConfig).where(SystemConfig.key == "thresholds")
+        )).scalar_one_or_none()
+        if cfg_row and isinstance(cfg_row.value, dict):
+            for field, attr in [
+                ("alert_threshold", "ALERT_THRESHOLD"), ("ml_weight", "ML_WEIGHT"),
+                ("rule_weight", "RULE_WEIGHT"), ("severity_low", "SEVERITY_LOW"),
+                ("severity_medium", "SEVERITY_MEDIUM"), ("severity_high", "SEVERITY_HIGH"),
+            ]:
+                if field in cfg_row.value:
+                    setattr(settings, attr, cfg_row.value[field])
+            logger.info("Restored persisted threshold config.")
 
     async with async_session_maker() as db:
         # Check if users already seeded
@@ -222,24 +243,28 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
         "username": user.username,
         "role": user.role,
         "full_name": user.full_name,
+        "department": user.department,
     }
     token = jwt.encode(token_data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return {"access_token": token, "token_type": "bearer"}
 
 
-@app.get("/api/v1/auth/me")
-async def get_me(db: AsyncSession = Depends(get_db)):
-    # Placeholder — returns admin for now; full JWT decode in final review
-    user = (await db.execute(select(User).where(User.username == "admin"))).scalar_one_or_none()
+@app.get("/api/v1/auth/me", response_model=CurrentUser)
+async def get_me(
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Decode the JWT (via get_current_user), then hydrate department from the DB
+    user = (await db.execute(select(User).where(User.id == uuid.UUID(current.id)))).scalar_one_or_none()
     if user:
-        return {
-            "id": str(user.id),
-            "username": user.username,
-            "full_name": user.full_name,
-            "role": user.role,
-            "department": user.department,
-        }
-    return None
+        return CurrentUser(
+            id=str(user.id),
+            username=user.username,
+            full_name=user.full_name,
+            role=user.role,
+            department=user.department,
+        )
+    return current
 
 
 @app.get("/health")

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../App';
+import { getInitials } from '../theme';
+import NotificationBell from './NotificationBell';
 
 /* Minimal SVG icons — no emoji, no external dependency */
 const icons = {
@@ -44,10 +46,20 @@ const icons = {
       <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
     </svg>
   ),
+  gear: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  ),
 };
 
 const Sidebar = () => {
-  const { logout } = useAuth();
+  const { logout, role, fullName, username } = useAuth();
+
+  const displayName = fullName || username || 'Unknown User';
+  const roleLabel = role === 'admin' ? 'Administrator' : role === 'analyst' ? 'SOC Analyst' : 'User';
+  const avatarInitials = getInitials(displayName);
 
   // Theme: default to system preference, persist in localStorage
   const [theme, setTheme] = useState(() => {
@@ -99,10 +111,21 @@ const Sidebar = () => {
           {icons.users}
           <span>Users</span>
         </NavLink>
+        {role === 'admin' && (
+          <NavLink to="/admin/settings" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
+            {icons.gear}
+            <span>Admin Settings</span>
+          </NavLink>
+        )}
       </nav>
 
       {/* Bottom section */}
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+        {/* Notifications */}
+        <div className="mb-3">
+          <NotificationBell />
+        </div>
+
         {/* Theme toggle */}
         <button
           className="btn btn-ghost w-full mb-3"
@@ -122,11 +145,11 @@ const Sidebar = () => {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontWeight: '700', fontSize: '0.8rem',
           }}>
-            SA
+            {avatarInitials}
           </div>
           <div>
-            <div style={{ fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-primary)' }}>SecOps Admin</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>SOC Analyst</div>
+            <div style={{ fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-primary)' }}>{displayName}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{roleLabel}</div>
           </div>
         </div>
 

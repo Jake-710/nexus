@@ -2,10 +2,17 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
-import uuid, random
+import uuid, random, json
 from app.database import get_db
-from app.schemas import AlertListResponse, AlertResponse, StatsResponse, EventResponse
-from app.models import Alert, User, Event
+from app.schemas import (
+    AlertListResponse, AlertResponse, StatsResponse, EventResponse,
+    AlertStatusUpdate, AlertFeedbackCreate, NotificationItem,
+)
+from app.models import Alert, User, Event, AlertFeedback
+from app.api.auth import get_current_user
+from app.schemas import CurrentUser
+from app.services.mitre_mapping import get_mitre_tags
+from app.services.narrative_generator import generate_narrative
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from sqlalchemy import func, desc
@@ -145,6 +152,32 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         high_risk_users=high_risk_users
     )
 
+# IMPORTANT: /notifications must be defined BEFORE /{alert_id}
+# otherwise FastAPI treats "notifications" as an alert_id parameter.
+@router.get("/notifications", response_model=List[NotificationItem])
+async def get_notifications(db: AsyncSession = Depends(get_db)):
+    """Recent high/critical NEW alerts (last 24h) for the notification bell."""
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    rows = (await db.execute(
+        select(Alert, User)
+        .join(User, Alert.user_id == User.id)
+        .where(Alert.status == "new", Alert.risk_score >= 0.6, Alert.created_at >= since)
+        .order_by(desc(Alert.created_at))
+        .limit(20)
+    )).all()
+    return [
+        NotificationItem(
+            id=alert.id,
+            user_name=user.full_name or user.username,
+            user_department=user.department,
+            risk_score=alert.risk_score,
+            status=alert.status,
+            created_at=alert.created_at,
+        )
+        for alert, user in rows
+    ]
+
+
 @router.get("/{alert_id}", response_model=AlertResponse)
 async def get_alert(alert_id: str, db: AsyncSession = Depends(get_db)):
     try:
@@ -157,6 +190,27 @@ async def get_alert(alert_id: str, db: AsyncSession = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Alert not found")
     alert, user, event = row
+
+    # Lazily generate + cache the MITRE tags and AI narrative on first fetch
+    dirty = False
+    if alert.mitre_tags is None:
+        tags = get_mitre_tags(alert.rule_details if isinstance(alert.rule_details, list) else [])
+        alert.mitre_tags = json.dumps(tags)
+        dirty = True
+    if alert.genai_narrative is None:
+        alert.genai_narrative = generate_narrative(
+            risk_score=alert.risk_score,
+            ml_score=alert.ml_score,
+            rule_score=alert.rule_score,
+            rule_details=alert.rule_details if isinstance(alert.rule_details, list) else [],
+            event_details=event,
+            user_name=user.full_name or user.username,
+        )
+        dirty = True
+    if dirty:
+        await db.commit()
+        await db.refresh(alert)
+
     return AlertResponse(
         id=alert.id,
         user_id=alert.user_id,
@@ -173,3 +227,76 @@ async def get_alert(alert_id: str, db: AsyncSession = Depends(get_db)):
         user_department=user.department,
         event_details=EventResponse.model_validate(event)
     )
+
+
+@router.patch("/{alert_id}/status", response_model=AlertResponse)
+async def update_alert_status(
+    alert_id: str,
+    body: AlertStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    valid = {"new", "investigating", "resolved", "false_positive"}
+    if body.status not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(sorted(valid))}")
+    try:
+        aid = uuid.UUID(alert_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Invalid alert ID")
+
+    row = (await db.execute(
+        select(Alert, User, Event)
+        .join(User, Alert.user_id == User.id)
+        .join(Event, Alert.event_id == Event.id)
+        .where(Alert.id == aid)
+    )).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert, u, event = row
+    alert.status = body.status
+    await db.commit()
+    await db.refresh(alert)
+
+    return AlertResponse(
+        id=alert.id, user_id=alert.user_id, event_id=alert.event_id,
+        risk_score=alert.risk_score, ml_score=alert.ml_score, rule_score=alert.rule_score,
+        status=alert.status, rule_details=alert.rule_details,
+        genai_narrative=alert.genai_narrative, mitre_tags=alert.mitre_tags,
+        created_at=alert.created_at, user_name=u.full_name or u.username,
+        user_department=u.department, event_details=EventResponse.model_validate(event),
+    )
+
+
+@router.post("/{alert_id}/feedback")
+async def submit_alert_feedback(
+    alert_id: str,
+    body: AlertFeedbackCreate,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    valid = {"confirmed_threat", "false_positive"}
+    if body.verdict not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid verdict. Must be one of: {', '.join(sorted(valid))}")
+    try:
+        aid = uuid.UUID(alert_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Invalid alert ID")
+
+    alert = (await db.execute(select(Alert).where(Alert.id == aid))).scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    feedback = AlertFeedback(
+        alert_id=aid,
+        analyst_id=uuid.UUID(user.id),
+        verdict=body.verdict,
+        notes=body.notes,
+    )
+    db.add(feedback)
+
+    # Confirming/dismissing also advances the alert lifecycle
+    alert.status = "resolved" if body.verdict == "confirmed_threat" else "false_positive"
+    await db.commit()
+    await db.refresh(feedback)
+
+    return {"status": "ok", "feedback_id": str(feedback.id), "alert_status": alert.status}

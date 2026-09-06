@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     ALERT_THRESHOLD: float = 0.65
     ML_WEIGHT: float = 0.7
     RULE_WEIGHT: float = 0.3
+    # Severity tier boundaries (runtime-adjustable via the admin API)
+    SEVERITY_LOW: float = 0.40
+    SEVERITY_MEDIUM: float = 0.60
+    SEVERITY_HIGH: float = 0.80
+    GEMINI_API_KEY: str = ""
 
     class Config:
         env_file = ".env"

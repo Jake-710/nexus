@@ -75,3 +75,22 @@ class AuditLog(Base):
     action = Column(String)
     details = Column(String, nullable=True)
     timestamp = Column(TZDateTime, default=lambda: datetime.now(timezone.utc))
+
+class ModelTrainingLog(Base):
+    """Records each Isolation Forest (re)training run for the admin audit trail."""
+    __tablename__ = "model_training_logs"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    trained_at = Column(TZDateTime, default=lambda: datetime.now(timezone.utc))
+    peer_group_id = Column(Integer, nullable=True)
+    samples_used = Column(Integer, default=0)
+    avg_score_before = Column(Float, nullable=True)
+    avg_score_after = Column(Float, nullable=True)
+    triggered_by = Column(String, default="manual")  # manual | scheduled
+
+class SystemConfig(Base):
+    """Key/value store for runtime-adjustable settings (thresholds, weights)."""
+    __tablename__ = "system_config"
+    key = Column(String, primary_key=True)
+    value = Column(JSON)
+    updated_at = Column(TZDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_by = Column(String, nullable=True)
